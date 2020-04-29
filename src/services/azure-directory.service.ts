@@ -20,7 +20,6 @@ import { LogService } from 'jslib/abstractions/log.service';
 const NextLink = '@odata.nextLink';
 const DeltaLink = '@odata.deltaLink';
 const ObjectType = '@odata.type';
-const UserSelectParams = '?$select=id,mail,userPrincipalName,displayName,accountEnabled';
 
 enum UserSetType {
     IncludeUser,
@@ -79,7 +78,7 @@ export class AzureDirectoryService extends BaseDirectoryService implements Direc
     private async getCurrentUsers(): Promise<UserEntry[]> {
         const entryIds = new Set<string>();
         const entries: UserEntry[] = [];
-        const userReq = this.client.api('/users' + UserSelectParams);
+        const userReq = this.client.api('/users');
         let res = await userReq.get();
         const setFilter = this.createCustomUserSet(this.syncConfig.userFilter);
         while (true) {
@@ -119,6 +118,8 @@ export class AzureDirectoryService extends BaseDirectoryService implements Direc
         const entryIds = new Set<string>();
         const entries: UserEntry[] = [];
 
+        const setFilter = this.createCustomUserSet(this.syncConfig.userFilter);
+
         let res: any = null;
         const token = await this.configurationService.getUserDeltaToken();
         if (!force && token != null) {
@@ -131,13 +132,47 @@ export class AzureDirectoryService extends BaseDirectoryService implements Direc
         }
 
         if (res == null) {
-            const userReq = this.client.api('/users/delta' + UserSelectParams);
+            let userReq: any = null;
+            if (setFilter[0] === UserSetType.IncludeGroup) {
+                const filter: string[] = [];
+                for (const groupId of Array.from(setFilter[1])) {
+                    filter.push(`id eq '${groupId}`);
+                }
+                userReq = this.client.api(`/groups/delta?$filter=${filter.join(' or ')}'&$expand=members`);
+            } else {
+                userReq = this.client.api('/users/delta');
+            }
             res = await userReq.get();
         }
 
-        const setFilter = this.createCustomUserSet(this.syncConfig.userFilter);
         while (true) {
-            const users: graphType.User[] = res.value;
+            let users: graphType.User[] = [];
+            if (setFilter[0] === UserSetType.IncludeGroup) {
+                if (res.value != null && res.value.length > 0) {
+                    for (const graphUsers of res.value) {
+                        const userIds: graphType.User[] = graphUsers['members@delta'];
+                        for (const user of userIds) {
+                            const existing = users.filter((existingUser) => existingUser.id === user.id);
+                            if (existing.length === 0) {
+                                let graphUser: any;
+                                try {
+                                    graphUser = await this.client.api(`/users/${user.id}?$select=accountEnabled,displayName,mail,userPrincipalName,id,givenName,surname`).get();
+                                } catch (e) {
+                                    graphUser = {
+                                        id: user.id,
+                                    };
+                                }
+                                if ((user as any)['@removed'] != null) {
+                                    graphUser['@removed'] = (user as any)['@removed'];
+                                }
+                                users.push(graphUser);
+                            }
+                        }
+                    }
+                }
+            } else {
+                users = res.value;
+            }
             if (users != null) {
                 for (const user of users) {
                     if (user.id == null || entryIds.has(user.id)) {
@@ -259,7 +294,7 @@ export class AzureDirectoryService extends BaseDirectoryService implements Direc
 
         entry.disabled = user.accountEnabled == null ? false : !user.accountEnabled;
 
-        if ((user as any)['@removed'] != null && (user as any)['@removed'].reason === 'changed') {
+        if ((user as any)['@removed'] != null && ((user as any)['@removed'].reason === 'changed' || (user as any)['@removed'].reason === 'deleted')) {
             entry.deleted = true;
         }
 
@@ -305,24 +340,20 @@ export class AzureDirectoryService extends BaseDirectoryService implements Direc
         entry.externalId = group.id;
         entry.name = group.displayName;
 
+        if (group.displayName.length > 50) {
+            group.displayName = group.displayName.substr(0, 50);
+        }
+
         const memReq = this.client.api('/groups/' + group.id + '/members');
-        let memRes = await memReq.get();
-        while (true) {
-            const members: any = memRes.value;
-            if (members != null) {
-                for (const member of members) {
-                    if (member[ObjectType] === '#microsoft.graph.group') {
-                        entry.groupMemberReferenceIds.add((member as graphType.Group).id);
-                    } else if (member[ObjectType] === '#microsoft.graph.user') {
-                        entry.userMemberExternalIds.add((member as graphType.User).id);
-                    }
+        const memRes = await memReq.get();
+        const members: any = memRes.value;
+        if (members != null) {
+            for (const member of members) {
+                if (member[ObjectType] === '#microsoft.graph.group') {
+                    entry.groupMemberReferenceIds.add((member as graphType.Group).id);
+                } else if (member[ObjectType] === '#microsoft.graph.user') {
+                    entry.userMemberExternalIds.add((member as graphType.User).id);
                 }
-            }
-            if (memRes[NextLink] == null) {
-                break;
-            } else {
-                const nextMemReq = this.client.api(memRes[NextLink]);
-                memRes = await nextMemReq.get();
             }
         }
 

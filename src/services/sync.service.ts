@@ -82,7 +82,23 @@ export class SyncService {
                     throw new Error('Organization not set.');
                 }
 
-                await this.apiService.postImportDirectory(orgId, req);
+                if (groups.length > 200) {
+                    // First we import users only
+                    const userReq = this.buildRequest([], users, syncConfig.removeDisabled, syncConfig.overwriteExisting);
+                    await this.apiService.postImportDirectory(orgId, userReq);
+
+                    let groupSliceStart = 0;
+                    do {
+                        // Here we import groups by batches of 200
+                        const groupsReq = this.buildRequest(groups.slice(groupSliceStart, groupSliceStart + 200), [], syncConfig.removeDisabled, false);
+                        await this.apiService.postImportDirectory(orgId, groupsReq);
+                        groupSliceStart += 200;
+                    } while(groupSliceStart < groups.length)
+                }
+                else {
+                    await this.apiService.postImportDirectory(orgId, req);
+                }
+
                 await this.configurationService.saveLastSyncHash(hash);
             } else {
                 groups = null;
