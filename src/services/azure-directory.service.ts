@@ -345,15 +345,24 @@ export class AzureDirectoryService extends BaseDirectoryService implements Direc
         }
 
         const memReq = this.client.api('/groups/' + group.id + '/members');
-        const memRes = await memReq.get();
-        const members: any = memRes.value;
-        if (members != null) {
-            for (const member of members) {
-                if (member[ObjectType] === '#microsoft.graph.group') {
-                    entry.groupMemberReferenceIds.add((member as graphType.Group).id);
-                } else if (member[ObjectType] === '#microsoft.graph.user') {
-                    entry.userMemberExternalIds.add((member as graphType.User).id);
+
+        let memRes = await memReq.get();
+        while (true) {
+            const members: any = memRes.value;
+            if (members != null) {
+                for (const member of members) {
+                    if (member[ObjectType] === '#microsoft.graph.group') {
+                        entry.groupMemberReferenceIds.add((member as graphType.Group).id);
+                    } else if (member[ObjectType] === '#microsoft.graph.user') {
+                        entry.userMemberExternalIds.add((member as graphType.User).id);
+                    }
                 }
+            }
+            if (memRes[NextLink] == null) {
+                break;
+            } else {
+                const nextMemReq = this.client.api(memRes[NextLink]);
+                memRes = await nextMemReq.get();
             }
         }
 
