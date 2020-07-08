@@ -182,6 +182,9 @@ export class AzureDirectoryService extends BaseDirectoryService implements Direc
                     if (!entry.disabled && !entry.deleted) {
                         continue;
                     }
+                    if (!entry.disabled && !entry.deleted && entry.email == null) {
+                        continue;
+                    }
                     if (await this.filterOutUserResult(setFilter, entry)) {
                         continue;
                     }
