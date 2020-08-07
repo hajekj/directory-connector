@@ -58,7 +58,7 @@ export class GSuiteDirectoryService extends BaseDirectoryService implements Dire
         if (this.syncConfig.groups) {
             const setFilter = this.createCustomSet(this.syncConfig.groupFilter);
             groups = await this.getGroups(setFilter);
-            users = this.filterUsersFromGroupsSet(users, groups, setFilter);
+            users = this.filterUsersFromGroupsSet(users, groups, setFilter, this.syncConfig);
         }
 
         return [groups, users];
@@ -190,9 +190,6 @@ export class GSuiteDirectoryService extends BaseDirectoryService implements Dire
             if (memRes.data.members != null) {
                 for (const member of memRes.data.members) {
                     if (member.type == null) {
-                        continue;
-                    }
-                    if (member.role == null || member.role.toLowerCase() !== 'member') {
                         continue;
                     }
                     if (member.status == null || member.status.toLowerCase() !== 'active') {
