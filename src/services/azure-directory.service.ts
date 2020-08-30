@@ -313,7 +313,7 @@ export class AzureDirectoryService extends BaseDirectoryService implements Direc
             const groups: graphType.Group[] = res.value;
             if (groups != null) {
                 for (const group of groups) {
-                    if (group.id == null || entryIds.has(group.id)) {
+                    if (group.id == null || entryIds.has(group.id) || group.displayName.length > 100) {
                         continue;
                     }
                     if (this.filterOutResult(setFilter, group.displayName)) {
